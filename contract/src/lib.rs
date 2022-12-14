@@ -1,12 +1,12 @@
 use near_sdk::borsh::{self, BorshDeserialize, BorshSerialize};
-use near_sdk::serde::{Serialize, Serializer};
+use near_sdk::serde::{Serialize, Serializer, Deserialize};
 use near_sdk::{env, AccountId, Balance, near_bindgen, Promise, PanicOnDefault, serde_json};
 use near_sdk::collections::{LookupMap, UnorderedSet, Vector};
 use serde::ser::SerializeStruct;
 
 const NEAR: Balance = 1_000_000_000_000_000_000_000_000;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct EventSpec {
   // Max people that can join this event
   max_num: u64,
@@ -169,9 +169,7 @@ impl Contract {
         // TODO: how do I guarantee that all these refunds are made successfully?
         Promise::new(event.beneficiary).transfer(event.price * (event.cur_participants.len() as u128 ));
       };
-
     }
-
   }
 
   pub fn get_all_events(&self) -> Vec<EventId> {
