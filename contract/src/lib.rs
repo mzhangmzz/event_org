@@ -19,10 +19,20 @@ pub struct EventSpec {
   deadline: u64,
   // If the event raises money successfully, where the money will go to. Usually this will
   // be set as the event owner
-  benefiary: AccountId,
+  beneficiary: AccountId,
 }
 
 type EventId = String;
+
+#[derive(BorshDeserialize, BorshSerialize, Serialize, Eq, PartialEq)]
+enum EventStatus {
+  // Deadline is not reached, or no claim has been submitted yet
+  WAITING,
+  // Deadline has passed and not enough people joined, refund has been issued
+  FAILED,
+  // Deadline has passed and enough people joined, fund has been sent to beneficiary
+  SUCCESS,
+}
 
 #[derive(BorshDeserialize, BorshSerialize)]
 struct Event {
@@ -39,6 +49,7 @@ struct Event {
   // If the event raises money successfully, where the money will go to. Usually this will
   // be set as the event owner
   beneficiary: AccountId,
+  status: EventStatus,
 }
 
 impl Serialize for Event {
@@ -64,7 +75,8 @@ impl Event {
         cur_participants: Vector::new(event_id.try_to_vec().unwrap()),
         price: spec.price,
         deadline: spec.deadline,
-        beneficiary: spec.benefiary,
+        beneficiary: spec.beneficiary,
+        status: EventStatus::WAITING,
       }
   }
 
@@ -121,7 +133,6 @@ impl Contract {
     events.push(&event_id);
     self.events_by_owner.insert(&account_id, &events);
     self.event_ids.push(&event_id);
-    self.event_ids.push(&event_id);
     event_id
   }
 
@@ -138,20 +149,27 @@ impl Contract {
   }
 
   pub fn claim(&mut self, event_id: EventId) {
-    let event = self.get_event(&event_id).expect("Event does not exist");
+    let mut event = self.get_event(&event_id).expect("Event does not exist");
 
-    if env::block_timestamp() >= event.deadline {
+    if event.status == EventStatus::WAITING && env::block_timestamp() >= event.deadline {
       if event.cur_participants.len() < event.min_num {
-        let promise = event.cur_participants.iter().fold(None, |p: Option<Promise>, acc| {
+        event.status = EventStatus::FAILED;
+        // TODO: how do I guarantee that all these refunds are made successfully?
+        // If the event doesn't happen, refund everyone
+        event.cur_participants.iter().fold(None, |p: Option<Promise>, acc| {
           if let Some(p) = p {
             Some(p.and(Promise::new(acc).transfer(event.price)))
           } else {
             Some(Promise::new(acc).transfer(event.price))
           }
-        });
+        }).unwrap();
       } else {
+        event.status = EventStatus::SUCCESS;
+        // Event will happen, send money to beneficiary
+        // TODO: how do I guarantee that all these refunds are made successfully?
         Promise::new(event.beneficiary).transfer(event.price * (event.cur_participants.len() as u128 ));
-      }
+      };
+
     }
 
   }
