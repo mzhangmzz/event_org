@@ -9,6 +9,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 near-sdk = "4.0.0"
+serde = "1.0.150"
 uint = { version = "0.9.3", default-features = false }
 
 [profile.release]
