@@ -4,4 +4,4 @@
 
 echo ">> Deploying contract"
 
-near dev-deploy --wasmFile ./target/wasm32-unknown-unknown/release/contract.wasm
+near deploy --wasmFile ./target/wasm32-unknown-unknown/release/contract.wasm --accountId test1.event_org.testnet

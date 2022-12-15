@@ -12,8 +12,8 @@ pub struct EventSpec {
   max_num: u64,
   // Min people need to join this event to make it happen
   min_num: u64,
-  // In yoctoNear
-  price: Balance,
+  // In 0.001 * Near
+  price: u64,
   // if the number of participants do not meet the target by this time, all funds will be returned
   // Number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC.
   deadline: u64,
@@ -43,9 +43,11 @@ struct Event {
   cur_participants: Vector<AccountId>,
   // In yoctoNear
   price: Balance,
-  // if the number of participants do not meet the target by this time, all funds will be returned
+  // If the number of participants do not meet the target by this time, all funds will be returned
   // Number of non-leap-nanoseconds since January 1, 1970 0:00:00 UTC.
   deadline: u64,
+  // Owner of the event
+  owner: AccountId,
   // If the event raises money successfully, where the money will go to. Usually this will
   // be set as the event owner
   beneficiary: AccountId,
@@ -54,12 +56,15 @@ struct Event {
 
 impl Serialize for Event {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    let mut state = serializer.serialize_struct("Event", 5)?;
+    let mut state = serializer.serialize_struct("Event", 8)?;
     state.serialize_field("max_num", &self.max_num)?;
     state.serialize_field("min_num", &self.min_num)?;
     state.serialize_field("cur_participants", &self.cur_participants.to_vec())?;
     state.serialize_field("price", &self.price)?;
     state.serialize_field("deadline", &self.deadline)?;
+    state.serialize_field("owner", &self.owner)?;
+    state.serialize_field("beneficiary", &self.beneficiary)?;
+    state.serialize_field("status", &self.status)?;
     state.end()
   }
 }
@@ -68,13 +73,14 @@ impl Serialize for Event {
 struct Error(String);
 
 impl Event {
-  fn new(spec: EventSpec, event_id: &String) -> Self {
+  fn new(spec: EventSpec, event_id: &String, owner: AccountId) -> Self {
       Self {
         max_num: spec.max_num,
         min_num: spec.min_num,
         cur_participants: Vector::new(event_id.try_to_vec().unwrap()),
-        price: spec.price,
+        price: spec.price as u128 * 1_000_000_000_000_000_000_000_u128,
         deadline: spec.deadline,
+        owner,
         beneficiary: spec.beneficiary,
         status: EventStatus::WAITING,
       }
@@ -126,7 +132,7 @@ impl Contract {
   pub fn start_event(&mut self, account_id: AccountId, event_spec: EventSpec) -> EventId {
     env::setup_panic_hook();
     let event_id: EventId = format!("event_{}", self.event_ids.len());
-    let event = Event::new(event_spec, &event_id);
+    let event = Event::new(event_spec, &event_id, account_id.clone());
 
     self.events.insert(&event_id, &event);
     let mut events = self.events_by_owner.get(&account_id).unwrap_or_else(|| Vector::new(format!("o#{}", account_id).as_bytes()));
@@ -154,7 +160,6 @@ impl Contract {
     if event.status == EventStatus::WAITING && env::block_timestamp() >= event.deadline {
       if event.cur_participants.len() < event.min_num {
         event.status = EventStatus::FAILED;
-        // TODO: how do I guarantee that all these refunds are made successfully?
         // If the event doesn't happen, refund everyone
         event.cur_participants.iter().fold(None, |p: Option<Promise>, acc| {
           if let Some(p) = p {
@@ -166,10 +171,10 @@ impl Contract {
       } else {
         event.status = EventStatus::SUCCESS;
         // Event will happen, send money to beneficiary
-        // TODO: how do I guarantee that all these refunds are made successfully?
-        Promise::new(event.beneficiary).transfer(event.price * (event.cur_participants.len() as u128 ));
+        Promise::new(event.beneficiary.clone()).transfer(event.price * (event.cur_participants.len() as u128 ));
       };
     }
+    self.events.insert(&event_id, &event);
   }
 
   pub fn get_all_events(&self) -> Vec<EventId> {
@@ -186,5 +191,16 @@ impl Contract {
 
   pub fn get_event(&self, event_id: &EventId) -> Option<Event> {
     self.events.get(&event_id)
+  }
+}
+
+mod tests {
+  use near_sdk::serde_json;
+
+  #[test]
+  fn test() {
+    let string = "1000000000000000000000000000000000";
+    let value: u128 = serde_json::from_str(string).unwrap();
+    assert_eq!(value, 1000000000000000000000000000000000_u128);
   }
 }
